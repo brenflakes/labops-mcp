@@ -178,9 +178,9 @@ This tool exposes read-only access to your infrastructure. `docker inspect` will
 
 ## Documentation
 
-- [SECURITY.md](docs/SECURITY.md) - Threat model, risks, hardening
-- [TOOLS.md](docs/TOOLS.md) - Tool reference and examples
-- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues and fixes
+- [SECURITY.md](SECURITY.md) - Threat model, risks, hardening
+- [TOOLS.md](TOOLS.md) - Tool reference and examples
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and fixes
 
 ## License
 
