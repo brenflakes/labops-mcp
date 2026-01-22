@@ -150,12 +150,12 @@ The `type` field enables auto-discovery for convenience tools:
 
 Example:
 ```yaml
-ollama-beast:
+ollama-host1:
   url: http://192.168.1.100:11434
   auth: false
   type: ollama
 
-glances-beast:
+glances-host2:
   url: http://192.168.1.100:61208
   auth: false
   type: glances
@@ -174,13 +174,13 @@ Then call: `ollama_models(host="beast")` or `system_stats(host="beast")`
 
 This tool exposes read-only access to your infrastructure. `docker inspect` will reveal container environment variables (passwords, API keys, etc.).
 
-**Read [docs/SECURITY.md](docs/SECURITY.md) before deploying.**
+**Read [docs/SECURITY.md](SECURITY.md) before deploying.**
 
 ## Documentation
 
-- [SECURITY.md](docs/SECURITY.md) - Threat model, risks, hardening
-- [TOOLS.md](docs/TOOLS.md) - Tool reference and examples
-- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - Common issues and fixes
+- [SECURITY.md](SECURITY.md) - Threat model, risks, hardening
+- [TOOLS.md](TOOLS.md) - Tool reference and examples
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues and fixes
 
 ## License
 
