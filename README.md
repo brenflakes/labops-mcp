@@ -10,6 +10,8 @@ The workflow now: ask a question → Claude goes and gets the answer itself.
 
 Built with security in mind: restricted shell users, SSH key auth, read-only by design. Modular config means adding new hosts or APIs is just a few lines of YAML.
 
+This is version 2, I've tried to keep it lean and efficient for everything. If you have any issues or feedback, feel free to open an issue or reach out.
+
 ## Features
 
 - **Config-driven**: All hosts, APIs, and authentication in one YAML file
