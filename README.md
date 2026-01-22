@@ -150,12 +150,12 @@ The `type` field enables auto-discovery for convenience tools:
 
 Example:
 ```yaml
-ollama-beast:
+ollama-host1:
   url: http://192.168.1.100:11434
   auth: false
   type: ollama
 
-glances-beast:
+glances-host2:
   url: http://192.168.1.100:61208
   auth: false
   type: glances
