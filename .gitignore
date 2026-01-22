@@ -1,0 +1,30 @@
+# User config (contains IPs)
+config/inventory.yml
+
+# Secrets
+.env
+
+# SSH keys (if stored in repo directory)
+*.pem
+id_*
+*.pub
+homelab-mcp
+homelab-mcp.pub
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

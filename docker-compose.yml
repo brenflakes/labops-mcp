@@ -1,0 +1,17 @@
+services:
+  homelab-mcp:
+    build: .
+    container_name: labops-mcp
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    volumes:
+      # Config (read-only)
+      - ./config:/app/config:ro
+      # SSH key for connecting to hosts (read-only)
+      - ~/.ssh/homelab-mcp:/root/.ssh/id_ed25519:ro
+      - ~/.ssh/homelab-mcp.pub:/root/.ssh/id_ed25519.pub:ro
+    env_file:
+      - .env
+    environment:
+      - CONFIG_PATH=/app/config/inventory.yml

@@ -1,0 +1,159 @@
+# Homelab MCP Inventory - Example Configuration
+#
+# Copy this to inventory.yml and customize for your setup.
+#
+# Schema Reference:
+#
+#   hosts:
+#     {name}:
+#       ip: (required) IP address
+#       ssh: (required) true to enable SSH access
+#       user: (required) SSH username (e.g., claude-ro)
+#
+#   apis:
+#     {name}:
+#       url: (required) Base URL including port
+#       auth: (optional) true if authentication required
+#       auth_type: (required if auth: true) bearer | api_key | emby | pve | immich | basic | custom
+#       auth_header: (optional) custom header name, only used with auth_type: custom
+#       token_env: (required if auth: true) environment variable containing token
+#       verify_ssl: (optional) set false for self-signed certs, default true
+#       type: (optional) prometheus | uptime-kuma | ollama | glances
+#             Enables auto-discovery for convenience tools
+#
+# Supported auth_type values:
+#   bearer   -> Authorization: Bearer {token}     (Home Assistant, Grafana)
+#   api_key  -> X-Api-Key: {token}                (Sonarr, Radarr, Prowlarr, Portainer)
+#   emby     -> X-Emby-Token: {token}             (Jellyfin, Emby)
+#   pve      -> Authorization: PVEAPIToken={token} (Proxmox)
+#   immich   -> x-api-key: {token}                (Immich - lowercase header)
+#   basic    -> Authorization: Basic base64({token}) (Uptime Kuma - token format: username:password)
+#   custom   -> {auth_header}: {token}            (Anything else)
+#
+# Supported type values (enables convenience tools):
+#   prometheus  -> prom_query(), homelab_alerts()
+#   uptime-kuma -> homelab_alerts() (uses /metrics endpoint)
+#   ollama      -> ollama_models() — use naming convention: ollama-{hostname}
+#   glances     -> system_stats() — use naming convention: glances-{hostname}
+
+hosts:
+  # Add your Linux hosts here
+  # Each host needs the claude-ro user set up first (see setup/setup-host.sh)
+  
+  my-server:
+    ip: 192.168.1.100
+    ssh: true
+    user: claude-ro
+
+  # another-server:
+  #   ip: 192.168.1.101
+  #   ssh: true
+  #   user: claude-ro
+
+apis:
+  # =============================================================================
+  # MONITORING
+  # =============================================================================
+
+  prometheus:
+    url: http://192.168.1.100:9090
+    auth: false
+    type: prometheus
+
+  # Uptime Kuma - uses /metrics endpoint with basic auth
+  uptime-kuma:
+    url: http://192.168.1.100:3001
+    auth: true
+    auth_type: basic
+    token_env: KUMA_TOKEN
+    type: uptime-kuma
+
+  grafana:
+    url: http://192.168.1.100:3000
+    auth: true
+    auth_type: bearer
+    token_env: GRAFANA_TOKEN
+
+  # =============================================================================
+  # MEDIA MANAGEMENT (*arr stack)
+  # =============================================================================
+
+  sonarr:
+    url: http://192.168.1.100:8989
+    auth: true
+    auth_type: api_key
+    token_env: SONARR_TOKEN
+
+  radarr:
+    url: http://192.168.1.100:7878
+    auth: true
+    auth_type: api_key
+    token_env: RADARR_TOKEN
+
+  prowlarr:
+    url: http://192.168.1.100:9696
+    auth: true
+    auth_type: api_key
+    token_env: PROWLARR_TOKEN
+
+  jellyfin:
+    url: http://192.168.1.100:8096
+    auth: true
+    auth_type: emby
+    token_env: JELLYFIN_TOKEN
+
+  # =============================================================================
+  # PHOTOS
+  # =============================================================================
+
+  immich:
+    url: http://192.168.1.100:2283
+    auth: true
+    auth_type: immich
+    token_env: IMMICH_TOKEN
+
+  # =============================================================================
+  # INFRASTRUCTURE
+  # =============================================================================
+
+  portainer:
+    url: http://192.168.1.100:9000
+    auth: true
+    auth_type: api_key
+    token_env: PORTAINER_TOKEN
+
+  home-assistant:
+    url: http://192.168.1.101:8123
+    auth: true
+    auth_type: bearer
+    token_env: HA_TOKEN
+
+  # Proxmox (self-signed cert)
+  proxmox:
+    url: https://192.168.1.200:8006
+    auth: true
+    auth_type: pve
+    token_env: PROXMOX_TOKEN
+    verify_ssl: false
+
+  # =============================================================================
+  # OLLAMA INSTANCES (optional)
+  # Naming convention: ollama-{hostname}
+  # Enables: ollama_models(host) tool
+  # =============================================================================
+
+  # ollama-my-server:
+  #   url: http://192.168.1.100:11434
+  #   auth: false
+  #   type: ollama
+
+  # =============================================================================
+  # GLANCES INSTANCES (optional)
+  # Naming convention: glances-{hostname}
+  # Enables: system_stats(host) tool
+  # =============================================================================
+
+  # glances-my-server:
+  #   url: http://192.168.1.100:61208
+  #   auth: false
+  #   type: glances
