@@ -174,7 +174,7 @@ Then call: `ollama_models(host="beast")` or `system_stats(host="beast")`
 
 This tool exposes read-only access to your infrastructure. `docker inspect` will reveal container environment variables (passwords, API keys, etc.).
 
-**Read [docs/SECURITY.md](docs/SECURITY.md) before deploying.**
+**Read [docs/SECURITY.md](SECURITY.md) before deploying.**
 
 ## Documentation
 
