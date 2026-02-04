@@ -188,7 +188,7 @@ uptime-kuma:
   type: uptime-kuma
 ```
 
-Then call: `ollama_models(host="beast")` or `system_stats(host="beast")`
+Then call: `ollama_models(host="host1")` or `system_stats(host="host2")`
 
 ## ⚠️ Security Notice
 

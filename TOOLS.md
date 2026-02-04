@@ -17,9 +17,9 @@ ssh_exec(host, command)
 
 **Example:**
 ```python
-ssh_exec("docker-box", "sudo docker ps -a")
-ssh_exec("docker-box", "df -h")
-ssh_exec("docker-box", "sudo docker stats --no-stream")
+ssh_exec("my-server", "sudo docker ps -a")
+ssh_exec("my-server", "df -h")
+ssh_exec("my-server", "sudo docker stats --no-stream")
 ```
 
 ---
@@ -77,11 +77,11 @@ homelab_status()
 **Example output:**
 ```
 🖥️  HOSTS
-   docker-box      ✅ up 15d   load 0.42  containers 26
-   ai-lab          ✅ up 3d    load 0.15  containers 4
+   my-server      ✅ up 15d   load 0.42  containers 26
+   other-host          ✅ up 3d    load 0.15  containers 4
 
 ⚡ UPS
-   eaton5e         (docker-box) ✅ OL       100%  45min  12% load
+   myups           (my-server) ✅ OL       100%  45min  12% load
 
 🔌 APIS
    prometheus ✅  grafana ✅  sonarr ✅  radarr ✅
@@ -107,8 +107,8 @@ container_logs(host, container, lines?)
 
 **Examples:**
 ```python
-container_logs("docker-box", "prometheus")
-container_logs("docker-box", "nginx", lines=200)
+container_logs("my-server", "prometheus")
+container_logs("my-server", "nginx", lines=200)
 ```
 
 ---
@@ -129,8 +129,8 @@ search_logs(host, pattern, lines?)
 
 **Examples:**
 ```python
-search_logs("docker-box", "error")
-search_logs("docker-box", "connection refused", lines=200)
+search_logs("my-server", "error")
+search_logs("my-server", "connection refused", lines=200)
 ```
 
 **Example output:**
@@ -156,7 +156,7 @@ container_mounts(host, container)
 
 **Example:**
 ```python
-container_mounts("docker-box", "prometheus")
+container_mounts("my-server", "prometheus")
 ```
 
 **Example output:**
@@ -165,7 +165,7 @@ container_mounts("docker-box", "prometheus")
 
    [volume] prometheus_prometheus-data
             → /prometheus (rw)
-   [bind]   /home/bren/prometheus/prometheus.yml
+   [bind]   /home/user/prometheus/prometheus.yml
             → /etc/prometheus/prometheus.yml (ro)
 ```
 
@@ -186,12 +186,12 @@ container_status(host, container)
 
 **Example:**
 ```python
-container_status("docker-box", "jellyfin")
+container_status("my-server", "jellyfin")
 ```
 
 **Example output:**
 ```
-✅ jellyfin on docker-box
+✅ jellyfin on my-server
    Status:   running
    Uptime:   4d 7h
    Restarts: 0
@@ -215,21 +215,21 @@ containers_recent_restarts(host, hours?)
 
 **Example:**
 ```python
-containers_recent_restarts("docker-box")
-containers_recent_restarts("docker-box", hours=48)
+containers_recent_restarts("my-server")
+containers_recent_restarts("my-server", hours=48)
 ```
 
 **Example output:**
 ```
-⚠️ Containers restarted in last 24h on docker-box:
+⚠️ Containers restarted in last 24h on my-server:
 
-   🟢 immich_server             2 restarts  (last: 2024-01-22 14:30)
+   🟢 some-container             2 restarts  (last: 2024-01-22 14:30)
    🟢 nginx                     1 restarts  (last: 2024-01-22 09:15)
 ```
 
 Or if none:
 ```
-✅ No containers restarted in the last 24 hours on docker-box
+✅ No containers restarted in the last 24 hours on my-server
 ```
 
 ---
@@ -276,8 +276,8 @@ homelab_alerts()
 🚨 ALERTS
 
 ⚠️  Prometheus FIRING:
-   • HighMemoryUsage (docker-box:9100)
-   • TargetDown (ai-lab:9100)
+   • HighMemoryUsage (my-server:9100)
+   • TargetDown (other-host:9100)
 
 🔴 Uptime Kuma DOWN:
    • Jellyfin
@@ -307,27 +307,27 @@ ollama_models(host?)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| host | string | Optional. Host name (e.g., "beast"). Omit to list available hosts. |
+| host | string | Optional. Host name (e.g., "gpu-host"). Omit to list available hosts. |
 
 **Examples:**
 ```python
 ollama_models()                    # List available hosts
-ollama_models(host="beast")        # Show models on beast
+ollama_models(host="gpu-host")        # Show models on gpu-host
 ```
 
 **Example output:**
 ```
-🤖 OLLAMA — beast
+🤖 OLLAMA — gpu-host
 
 📦 Installed:
-   qwen3:32b                                  18.8 GB
-   deepseek-r1:32b                            18.5 GB
-   llama3.2:latest                             1.9 GB
+   llama3.1:70b                                39.0 GB
+   mistral:7b                                  4.1 GB
+   nomic-embed-text:latest                     0.3 GB
 
-   Total: 3 models (39.2 GB)
+   Total: 3 models (43.4 GB)
 
 🔥 Loaded in VRAM:
-   qwen3:32b                                  18.8 GB VRAM
+   llama3.1:70b                                39.0 GB VRAM
 ```
 
 ---
@@ -349,20 +349,20 @@ system_stats(host?)
 **Examples:**
 ```python
 system_stats()                     # List available hosts
-system_stats(host="beast")         # Show stats for beast
+system_stats(host="gpu-host")         # Show stats for gpu-host
 ```
 
 **Example output:**
 ```
-📊 SYSTEM STATS — beast
+📊 SYSTEM STATS — gpu-host
 
 🔲 CPU:      6.2% total  (2.4% user, 3.3% sys)
-🧠 Memory:  45.6%       (28.8 / 63.2 GB)
+🧠 Memory:  45.6%       (14.6 / 32.0 GB)
 💾 Disks:
-   C:\                   30.0%  (558.5 / 1862.1 GB)
-   D:\                   41.7%  (776.1 / 1863.0 GB)
+   /                     30.0%  (142.5 / 475.0 GB)
+   /data                 41.7%  (396.1 / 950.0 GB)
 🎮 GPU:
-   NVIDIA GeForce RTX 4090
+   NVIDIA GeForce RTX 3090
       Load: 4%  VRAM: 9%  Temp: 44°C
 ```
 
