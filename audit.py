@@ -103,9 +103,26 @@ def register_audit_tool(mcp, hosts: dict, apis: dict, http_client):
                         except ValueError:
                             pass
             
+            # Check for world-readable .env files
+            hr["readable_env_files"] = []
+            env_success, env_output = _audit_ssh(
+                h["ip"], h["user"],
+                "find /home -name '.env' -readable -type f 2>/dev/null",
+                timeout=10
+            )
+            if env_success and env_output.strip():
+                readable = [f.strip() for f in env_output.strip().split('\n') if f.strip()]
+                hr["readable_env_files"] = readable
+                report["issues"].append(
+                    f"🔴 CRITICAL: {name} - {len(readable)} .env file(s) readable by {h['user']}! "
+                    f"Fix: chmod 600 on each file"
+                )
+
             # Risk level
             if hr["docker_group"]:
                 hr["risk"] = "🔴 CRITICAL"
+            elif hr["readable_env_files"]:
+                hr["risk"] = f"🔴 CRITICAL ({len(hr['readable_env_files'])} .env files exposed)"
             elif hr["containers_with_env"]:
                 hr["risk"] = f"🟡 MEDIUM ({len(hr['containers_with_env'])} containers with env vars)"
             elif hr["shell"] and "rbash" in hr["shell"]:
@@ -142,6 +159,7 @@ def register_audit_tool(mcp, hosts: dict, apis: dict, http_client):
             "critical": sum(1 for h in report["hosts"].values() if h.get("docker_group")),
             "containers_total": sum(h.get("containers", 0) for h in report["hosts"].values()),
             "containers_with_secrets": sum(len(h.get("containers_with_env", [])) for h in report["hosts"].values()),
+            "readable_env_files": sum(len(h.get("readable_env_files", [])) for h in report["hosts"].values()),
             "unauth_apis": sum(1 for a in report["apis"].values() if "No auth" in a.get("risk", ""))
         }
         
