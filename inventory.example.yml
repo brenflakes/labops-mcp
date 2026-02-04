@@ -173,3 +173,17 @@ apis:
   #   url: http://192.168.1.100:61208
   #   auth: false
   #   type: glances
+
+# =============================================================================
+# DIAGNOSTICS (optional)
+# n8n webhook endpoints that run predefined diagnostic workflows.
+# Enables: trigger_diagnostic(name) tool
+# =============================================================================
+
+# diagnostics:
+#   docker-logs:
+#     url: http://192.168.1.100:5678/webhook/docker-logs
+#     description: "Docker service logs (1 hour)"
+#   fstab:
+#     url: http://192.168.1.100:5678/webhook/fstab
+#     description: "Show /etc/fstab"

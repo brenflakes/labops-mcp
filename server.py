@@ -19,6 +19,9 @@ Tools:
     - container_status(host, container)         Single container health check
     - containers_recent_restarts(host)          Show recently restarted containers
 
+  Diagnostics:
+    - trigger_diagnostic(name)    Trigger a predefined n8n diagnostic webhook
+
   Monitoring (auto-discovered by type):
     - prom_query(query)           PromQL queries (requires type: prometheus)
     - homelab_alerts()            Firing alerts from Prometheus + Uptime Kuma
@@ -56,6 +59,7 @@ with open(CONFIG_PATH) as f:
 
 HOSTS = {name: h for name, h in config.get("hosts", {}).items() if h.get("ssh", False)}
 APIS = config.get("apis", {})
+DIAGNOSTICS = config.get("diagnostics", {})
 
 # Build type indexes for service discovery
 APIS_BY_TYPE = {}
@@ -68,8 +72,17 @@ for name, api in APIS.items():
 
 # Health check paths for services that need non-root URL checks
 HEALTH_CHECK_PATHS = {
+    "glances": "/api/4/quicklook",
     "synology": "/webapi/entry.cgi?api=SYNO.API.Info&method=query&version=1&query=SYNO.API.Auth",
 }
+
+
+def _health_check_url(api: dict) -> str:
+    """Get the URL to use for health checks. Uses a type-specific API endpoint
+    when the root URL doesn't reliably indicate service health."""
+    base = api["url"]
+    path = HEALTH_CHECK_PATHS.get(api.get("type", ""), "")
+    return f"{base}{path}" if path else base
 
 # Synology session cache: {api_name: {"sid": str, "timestamp": float}}
 _synology_sessions = {}
@@ -474,9 +487,7 @@ def health() -> str:
 
     for name, api in APIS.items():
         try:
-            api_type = api.get("type", "")
-            health_path = HEALTH_CHECK_PATHS.get(api_type, "")
-            url = f"{api['url']}{health_path}"
+            url = _health_check_url(api)
             resp = _http_get(url, timeout=3, verify=api.get("verify_ssl", True))
             status["checks"][f"api_{name}"] = resp.status_code < 500
         except:
@@ -1206,6 +1217,43 @@ def system_stats(host: str = None) -> str:
         return format_error(f"glances-{host}", "Connection Failed", base_url, "Is Glances running?")
 
     return "\n".join(out)
+
+
+# =============================================================================
+# DIAGNOSTICS
+# =============================================================================
+
+@mcp.tool()
+def trigger_diagnostic(name: str) -> str:
+    """
+    Trigger a predefined diagnostic via n8n webhook.
+    Each diagnostic runs a workflow that collects and returns system info.
+
+    Args:
+        name: Diagnostic to run (e.g., 'docker-logs', 'fstab')
+    """
+    if not DIAGNOSTICS:
+        return "No diagnostics configured in inventory.yml"
+
+    if name not in DIAGNOSTICS:
+        available = "\n".join(f"  {k}: {v.get('description', '(no description)')}" for k, v in DIAGNOSTICS.items())
+        return f"Unknown diagnostic: {name}\n\nAvailable:\n{available}"
+
+    diag = DIAGNOSTICS[name]
+    url = diag["url"]
+
+    try:
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(url)
+        if resp.status_code >= 400:
+            return format_error(f"diagnostic:{name}", f"HTTP {resp.status_code}", url, resp.text[:500])
+        return resp.text[:50000]
+    except httpx.ConnectError:
+        return format_error(f"diagnostic:{name}", "Connection Failed", url, "Is n8n running?")
+    except httpx.TimeoutException:
+        return format_error(f"diagnostic:{name}", "Timeout", url, "Webhook did not respond within 30s")
+    except Exception as e:
+        return format_error(f"diagnostic:{name}", "Error", url, str(e))
 
 
 # =============================================================================

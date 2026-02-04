@@ -62,6 +62,12 @@ Any other REST API can be added with `auth_type: bearer`, `api_key`, or `custom`
 | `container_status(host, container)` | Health check: running state, uptime, restarts |
 | `containers_recent_restarts(host, hours?)` | List containers that restarted recently |
 
+### Diagnostics
+
+| Tool | Purpose |
+|------|---------|
+| `trigger_diagnostic(name)` | Trigger a predefined n8n diagnostic webhook |
+
 ### Monitoring (auto-discovered by type)
 
 | Tool | Purpose | Requires |
