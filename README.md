@@ -194,7 +194,13 @@ Then call: `ollama_models(host="host1")` or `system_stats(host="host2")`
 
 This tool exposes read-only access to your infrastructure. `docker inspect` will reveal container environment variables (passwords, API keys, etc.).
 
-**Read [docs/SECURITY.md](SECURITY.md) before deploying.**
+**Important:** Ensure all `.env` files on your hosts are `chmod 600` (owner-only). Without this, the SSH user can read every credential on the host.
+
+```bash
+chmod 600 /path/to/your/.env
+```
+
+**Read [SECURITY.md](SECURITY.md) before deploying.**
 
 ## Documentation
 
