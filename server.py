@@ -24,6 +24,12 @@ Tools:
     - homelab_alerts()            Firing alerts from Prometheus + Uptime Kuma
     - ollama_models(host)         List Ollama models (requires type: ollama)
     - system_stats(host)          CPU/mem/disk from Glances (requires type: glances)
+
+  NAS (auto-discovered by type):
+    - nas_info(host)              Synology DSM system info
+    - nas_storage(host)           Volume status and usage
+    - nas_disks(host)             Disk health and SMART status
+    - nas_utilisation(host)       CPU, memory, network utilisation
 """
 
 import os
@@ -59,6 +65,33 @@ for name, api in APIS.items():
         if api_type not in APIS_BY_TYPE:
             APIS_BY_TYPE[api_type] = {}
         APIS_BY_TYPE[api_type][name] = api
+
+# Health check paths for services that need non-root URL checks
+HEALTH_CHECK_PATHS = {
+    "synology": "/webapi/entry.cgi?api=SYNO.API.Info&method=query&version=1&query=SYNO.API.Auth",
+}
+
+# Synology session cache: {api_name: {"sid": str, "timestamp": float}}
+_synology_sessions = {}
+_SYNOLOGY_SESSION_TTL = 3600  # 1 hour (conservative; DSM default is 7 days)
+
+# Synology API error codes
+_SYNOLOGY_ERRORS = {
+    100: "Unknown error",
+    101: "No parameter of API, method, or version",
+    102: "Requested API does not exist",
+    103: "Requested method does not exist",
+    104: "Requested version does not support this functionality",
+    105: "Not logged in or session expired",
+    106: "Session timeout",
+    107: "Session interrupted by duplicate login",
+    119: "SID not found",
+    400: "No such account or incorrect password",
+    401: "Account disabled",
+    402: "Permission denied",
+    403: "2-step verification required",
+    404: "Failed to authenticate 2-step verification code",
+}
 
 # =============================================================================
 # SECURITY
@@ -139,6 +172,9 @@ def _build_auth_headers(api: dict) -> tuple[dict, str | None]:
         import base64
         credentials = base64.b64encode(f":{token}".encode()).decode()
         return {"Authorization": f"Basic {credentials}"}, None
+    elif auth_type == "synology":
+        # Synology uses session-based auth via query params (_sid), not headers
+        return {}, None
     elif auth_type == "custom":
         header = api.get("auth_header")
         if not header:
@@ -193,6 +229,131 @@ def _extract_host_from_api_name(api_name: str, prefix: str) -> str:
     if api_name.startswith(f"{prefix}-"):
         return api_name[len(prefix) + 1:]
     return api_name
+
+
+def _synology_login(api_name: str, api: dict) -> tuple[str | None, str | None]:
+    """
+    Authenticate to Synology DSM and cache the session ID.
+    Returns (sid, error_message).
+    """
+    token_env = api.get("token_env")
+    if not token_env:
+        return None, "No token_env configured for Synology API"
+
+    creds = os.environ.get(token_env)
+    if not creds:
+        return None, f"Missing environment variable: {token_env}"
+
+    # Format: username:password (split on first colon to allow colons in password)
+    if ":" not in creds:
+        return None, f"{token_env} must be in username:password format"
+
+    username, password = creds.split(":", 1)
+    base_url = api["url"]
+    verify = api.get("verify_ssl", True)
+
+    try:
+        with httpx.Client(timeout=15, verify=verify) as client:
+            resp = client.get(f"{base_url}/webapi/entry.cgi", params={
+                "api": "SYNO.API.Auth",
+                "version": "6",
+                "method": "login",
+                "account": username,
+                "passwd": password,
+                "format": "sid",
+            })
+
+        data = resp.json()
+
+        if data.get("success"):
+            sid = data["data"]["sid"]
+            _synology_sessions[api_name] = {"sid": sid, "timestamp": time()}
+            return sid, None
+
+        error_code = data.get("error", {}).get("code", 0)
+        error_msg = _SYNOLOGY_ERRORS.get(error_code, f"Unknown error (code {error_code})")
+        return None, f"Synology login failed: {error_msg}"
+
+    except httpx.ConnectError:
+        return None, f"Cannot connect to Synology at {base_url}"
+    except httpx.TimeoutException:
+        return None, f"Synology login timed out at {base_url}"
+    except Exception as e:
+        return None, f"Synology login error: {e}"
+
+
+def _synology_request(
+    api_name: str,
+    api: dict,
+    api_endpoint: str,
+    method: str,
+    version: int = 1,
+    extra_params: dict = None,
+) -> tuple[dict | None, str | None]:
+    """
+    Make an authenticated request to Synology DSM API.
+    Handles session caching and automatic re-login on expiry.
+    Returns (data_dict, error_message).
+    """
+    # Check cached session
+    session = _synology_sessions.get(api_name)
+    if session and (time() - session["timestamp"]) < _SYNOLOGY_SESSION_TTL:
+        sid = session["sid"]
+    else:
+        # Login (or re-login)
+        _synology_sessions.pop(api_name, None)
+        sid, error = _synology_login(api_name, api)
+        if error:
+            return None, error
+
+    base_url = api["url"]
+    verify = api.get("verify_ssl", True)
+    params = {
+        "api": api_endpoint,
+        "version": str(version),
+        "method": method,
+        "_sid": sid,
+    }
+    if extra_params:
+        params.update(extra_params)
+
+    try:
+        with httpx.Client(timeout=15, verify=verify) as client:
+            resp = client.get(f"{base_url}/webapi/entry.cgi", params=params)
+
+        data = resp.json()
+
+        if data.get("success"):
+            return data.get("data", {}), None
+
+        error_code = data.get("error", {}).get("code", 0)
+
+        # Session expired — re-login and retry once
+        if error_code in (105, 106, 107, 119):
+            _synology_sessions.pop(api_name, None)
+            sid, login_error = _synology_login(api_name, api)
+            if login_error:
+                return None, login_error
+
+            params["_sid"] = sid
+            with httpx.Client(timeout=15, verify=verify) as client:
+                resp = client.get(f"{base_url}/webapi/entry.cgi", params=params)
+
+            data = resp.json()
+            if data.get("success"):
+                return data.get("data", {}), None
+
+            error_code = data.get("error", {}).get("code", 0)
+
+        error_msg = _SYNOLOGY_ERRORS.get(error_code, f"Unknown error (code {error_code})")
+        return None, f"Synology API error: {error_msg}"
+
+    except httpx.ConnectError:
+        return None, f"Cannot connect to Synology at {base_url}"
+    except httpx.TimeoutException:
+        return None, f"Synology request timed out at {base_url}"
+    except Exception as e:
+        return None, f"Synology request error: {e}"
 
 
 # =============================================================================
@@ -313,7 +474,10 @@ def health() -> str:
 
     for name, api in APIS.items():
         try:
-            resp = _http_get(api["url"], timeout=3, verify=api.get("verify_ssl", True))
+            api_type = api.get("type", "")
+            health_path = HEALTH_CHECK_PATHS.get(api_type, "")
+            url = f"{api['url']}{health_path}"
+            resp = _http_get(url, timeout=3, verify=api.get("verify_ssl", True))
             status["checks"][f"api_{name}"] = resp.status_code < 500
         except:
             status["checks"][f"api_{name}"] = False
@@ -1040,6 +1204,244 @@ def system_stats(host: str = None) -> str:
 
     except httpx.ConnectError:
         return format_error(f"glances-{host}", "Connection Failed", base_url, "Is Glances running?")
+
+    return "\n".join(out)
+
+
+# =============================================================================
+# NAS TOOLS (Type-based discovery: synology)
+# =============================================================================
+
+@mcp.tool()
+def nas_info(host: str = None) -> str:
+    """
+    Get Synology NAS system info: model, firmware, uptime, temperature.
+    Auto-discovers Synology instances by type in inventory.
+
+    Args:
+        host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
+    """
+    synology_apis = _get_apis_by_type("synology")
+
+    if not synology_apis:
+        return "No Synology instances configured. Add an API with 'type: synology' to inventory.yml"
+
+    available_hosts = {_extract_host_from_api_name(name, "synology"): name for name in synology_apis}
+
+    if not host:
+        return f"Available NAS hosts: {', '.join(available_hosts.keys())}\n\nUsage: nas_info(host='nas')"
+
+    if host not in available_hosts:
+        return f"Unknown NAS: {host}. Available: {', '.join(available_hosts.keys())}"
+
+    api_name = available_hosts[host]
+    api = synology_apis[api_name]
+
+    data, error = _synology_request(api_name, api, "SYNO.DSM.Info", "getinfo", version=2)
+    if error:
+        return format_error(f"synology-{host}", "API Error", api["url"], error)
+
+    model = data.get("model", "Unknown")
+    serial = data.get("serial", "Unknown")
+    version = data.get("version_string", data.get("version", "Unknown"))
+    ram = data.get("ram", 0)
+    uptime_min = data.get("uptime", 0) // 60
+    temp = data.get("temperature", "?")
+
+    days = uptime_min // 1440
+    hours = (uptime_min % 1440) // 60
+    uptime_str = f"{days}d {hours}h" if days > 0 else f"{hours}h"
+
+    out = [
+        f"📦 NAS INFO — {host}\n",
+        f"   Model:       {model}",
+        f"   Serial:      {serial}",
+        f"   DSM Version: {version}",
+        f"   RAM:         {ram} MB",
+        f"   Uptime:      {uptime_str}",
+        f"   Temperature: {temp}°C",
+    ]
+
+    return "\n".join(out)
+
+
+@mcp.tool()
+def nas_storage(host: str = None) -> str:
+    """
+    Get Synology NAS volume status and usage.
+    Auto-discovers Synology instances by type in inventory.
+
+    Args:
+        host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
+    """
+    synology_apis = _get_apis_by_type("synology")
+
+    if not synology_apis:
+        return "No Synology instances configured. Add an API with 'type: synology' to inventory.yml"
+
+    available_hosts = {_extract_host_from_api_name(name, "synology"): name for name in synology_apis}
+
+    if not host:
+        return f"Available NAS hosts: {', '.join(available_hosts.keys())}\n\nUsage: nas_storage(host='nas')"
+
+    if host not in available_hosts:
+        return f"Unknown NAS: {host}. Available: {', '.join(available_hosts.keys())}"
+
+    api_name = available_hosts[host]
+    api = synology_apis[api_name]
+
+    data, error = _synology_request(api_name, api, "SYNO.Storage.CGI.Storage", "load_info", version=1)
+    if error:
+        return format_error(f"synology-{host}", "API Error", api["url"], error)
+
+    volumes = data.get("volumes", [])
+
+    if not volumes:
+        return f"📦 {host}: No volumes found"
+
+    out = [f"💾 NAS STORAGE — {host}\n"]
+
+    for vol in volumes:
+        vol_id = vol.get("id", "?")
+        status = vol.get("status", "unknown")
+        total = vol.get("size", {}).get("total", "0")
+        used = vol.get("size", {}).get("used", "0")
+
+        try:
+            total_tb = int(total) / (1024 ** 4)
+            used_tb = int(used) / (1024 ** 4)
+            percent = (int(used) / int(total) * 100) if int(total) > 0 else 0
+        except (ValueError, ZeroDivisionError):
+            total_tb = used_tb = percent = 0
+
+        status_icon = "✅" if status == "normal" else "⚠️"
+        out.append(f"   {status_icon} {vol_id:12} {status:10} {used_tb:>6.2f} / {total_tb:.2f} TB ({percent:.1f}%)")
+
+    return "\n".join(out)
+
+
+@mcp.tool()
+def nas_disks(host: str = None) -> str:
+    """
+    Get Synology NAS disk health and SMART status.
+    Auto-discovers Synology instances by type in inventory.
+
+    Args:
+        host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
+    """
+    synology_apis = _get_apis_by_type("synology")
+
+    if not synology_apis:
+        return "No Synology instances configured. Add an API with 'type: synology' to inventory.yml"
+
+    available_hosts = {_extract_host_from_api_name(name, "synology"): name for name in synology_apis}
+
+    if not host:
+        return f"Available NAS hosts: {', '.join(available_hosts.keys())}\n\nUsage: nas_disks(host='nas')"
+
+    if host not in available_hosts:
+        return f"Unknown NAS: {host}. Available: {', '.join(available_hosts.keys())}"
+
+    api_name = available_hosts[host]
+    api = synology_apis[api_name]
+
+    data, error = _synology_request(api_name, api, "SYNO.Storage.CGI.Storage", "load_info", version=1)
+    if error:
+        return format_error(f"synology-{host}", "API Error", api["url"], error)
+
+    disks = data.get("disks", [])
+
+    if not disks:
+        return f"📦 {host}: No disks found"
+
+    out = [f"🔧 NAS DISKS — {host}\n"]
+
+    for disk in disks:
+        name = disk.get("name", "?")
+        model = disk.get("model", "Unknown").strip()
+        vendor = disk.get("vendor", "").strip()
+        status = disk.get("status", "unknown")
+        temp = disk.get("temp", "?")
+        smart = disk.get("smart_status", "unknown")
+        size_total = disk.get("size_total", "0")
+
+        try:
+            size_gb = int(size_total) / (1024 ** 3)
+        except (ValueError, TypeError):
+            size_gb = 0
+
+        status_icon = "✅" if status == "normal" else "⚠️"
+        smart_icon = "✅" if smart == "normal" else "⚠️"
+
+        label = f"{vendor} {model}".strip() if vendor else model
+        out.append(f"   {status_icon} {name:8} {label:30} {size_gb:>8.1f} GB  {temp:>3}°C  SMART: {smart_icon} {smart}")
+
+    return "\n".join(out)
+
+
+@mcp.tool()
+def nas_utilisation(host: str = None) -> str:
+    """
+    Get Synology NAS CPU, memory, and network utilisation.
+    Auto-discovers Synology instances by type in inventory.
+
+    Args:
+        host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
+    """
+    synology_apis = _get_apis_by_type("synology")
+
+    if not synology_apis:
+        return "No Synology instances configured. Add an API with 'type: synology' to inventory.yml"
+
+    available_hosts = {_extract_host_from_api_name(name, "synology"): name for name in synology_apis}
+
+    if not host:
+        return f"Available NAS hosts: {', '.join(available_hosts.keys())}\n\nUsage: nas_utilisation(host='nas')"
+
+    if host not in available_hosts:
+        return f"Unknown NAS: {host}. Available: {', '.join(available_hosts.keys())}"
+
+    api_name = available_hosts[host]
+    api = synology_apis[api_name]
+
+    data, error = _synology_request(api_name, api, "SYNO.Core.System.Utilization", "get", version=1)
+    if error:
+        return format_error(f"synology-{host}", "API Error", api["url"], error)
+
+    out = [f"📊 NAS UTILISATION — {host}\n"]
+
+    # CPU
+    cpu = data.get("cpu", {})
+    user_load = cpu.get("user_load", 0)
+    system_load = cpu.get("system_load", 0)
+    total_cpu = user_load + system_load
+    out.append(f"   🔲 CPU:    {total_cpu:>5.1f}% total  ({user_load:.1f}% user, {system_load:.1f}% sys)")
+
+    # Memory
+    mem = data.get("memory", {})
+    total_real = mem.get("total_real", 0)
+    avail_real = mem.get("avail_real", 0)
+    try:
+        total_mb = int(total_real) / 1024
+        avail_mb = int(avail_real) / 1024
+        used_mb = total_mb - avail_mb
+        percent = (used_mb / total_mb * 100) if total_mb > 0 else 0
+        out.append(f"   🧠 Memory: {percent:>5.1f}%       ({used_mb:.0f} / {total_mb:.0f} MB)")
+    except (ValueError, ZeroDivisionError):
+        out.append(f"   🧠 Memory: unavailable")
+
+    # Network
+    network = data.get("network", [])
+    if network:
+        out.append("   🌐 Network:")
+        for iface in network:
+            device = iface.get("device", "?")
+            rx = iface.get("rx", 0)
+            tx = iface.get("tx", 0)
+            # Convert bytes/sec to human-readable
+            rx_mbit = rx * 8 / (1024 * 1024) if rx else 0
+            tx_mbit = tx * 8 / (1024 * 1024) if tx else 0
+            out.append(f"      {device:10} ↓ {rx_mbit:>6.1f} Mbit/s  ↑ {tx_mbit:>6.1f} Mbit/s")
 
     return "\n".join(out)
 

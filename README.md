@@ -29,6 +29,7 @@ These services have native support with dedicated auth handling or convenience t
 | Uptime Kuma | `basic` | `homelab_alerts()` |
 | Ollama | - | `ollama_models()` |
 | Glances | - | `system_stats()` |
+| Synology DSM | `synology` | `nas_info()`, `nas_storage()`, `nas_disks()`, `nas_utilisation()` |
 | NUT (UPS) | - | Auto-discovery in `homelab_status()` |
 | Sonarr / Radarr / Prowlarr | `api_key` | - |
 | Jellyfin / Emby | `emby` | - |
@@ -69,6 +70,15 @@ Any other REST API can be added with `auth_type: bearer`, `api_key`, or `custom`
 | `homelab_alerts()` | Firing alerts from Prometheus + Uptime Kuma | `type: prometheus` and/or `type: uptime-kuma` |
 | `ollama_models(host?)` | List models + VRAM usage | `type: ollama` |
 | `system_stats(host?)` | CPU/memory/disk/GPU from Glances | `type: glances` |
+
+### NAS (auto-discovered by type)
+
+| Tool | Purpose | Requires |
+|------|---------|----------|
+| `nas_info(host?)` | Synology DSM system info | `type: synology` |
+| `nas_storage(host?)` | Volume status and usage | `type: synology` |
+| `nas_disks(host?)` | Disk health and SMART status | `type: synology` |
+| `nas_utilisation(host?)` | CPU, memory, network utilisation | `type: synology` |
 
 ### Security
 
@@ -137,6 +147,7 @@ The `auth_type` field determines how tokens are sent:
 | `pve` | `Authorization: PVEAPIToken={token}` | Proxmox |
 | `immich` | `x-api-key: {token}` | Immich |
 | `basic` | `Authorization: Basic base64({token})` | Uptime Kuma |
+| `synology` | Session-based (`SYNO.API.Auth`) | Synology DSM |
 | `custom` | `{auth_header}: {token}` | Anything else |
 
 ### Service Types
@@ -149,6 +160,7 @@ The `type` field enables auto-discovery for convenience tools:
 | `uptime-kuma` | `homelab_alerts()` | Any name |
 | `ollama` | `ollama_models(host)` | `ollama-{hostname}` |
 | `glances` | `system_stats(host)` | `glances-{hostname}` |
+| `synology` | `nas_info()`, `nas_storage()`, `nas_disks()`, `nas_utilisation()` | `synology-{hostname}` |
 
 Example:
 ```yaml

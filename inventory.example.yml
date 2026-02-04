@@ -14,11 +14,11 @@
 #     {name}:
 #       url: (required) Base URL including port
 #       auth: (optional) true if authentication required
-#       auth_type: (required if auth: true) bearer | api_key | emby | pve | immich | basic | custom
+#       auth_type: (required if auth: true) bearer | api_key | emby | pve | immich | basic | synology | custom
 #       auth_header: (optional) custom header name, only used with auth_type: custom
 #       token_env: (required if auth: true) environment variable containing token
 #       verify_ssl: (optional) set false for self-signed certs, default true
-#       type: (optional) prometheus | uptime-kuma | ollama | glances
+#       type: (optional) prometheus | uptime-kuma | ollama | glances | synology
 #             Enables auto-discovery for convenience tools
 #
 # Supported auth_type values:
@@ -28,6 +28,7 @@
 #   pve      -> Authorization: PVEAPIToken={token} (Proxmox)
 #   immich   -> x-api-key: {token}                (Immich - lowercase header)
 #   basic    -> Authorization: Basic base64({token}) (Uptime Kuma - token format: username:password)
+#   synology -> Session-based (SYNO.API.Auth)       (Synology DSM - token format: username:password)
 #   custom   -> {auth_header}: {token}            (Anything else)
 #
 # Supported type values (enables convenience tools):
@@ -35,6 +36,7 @@
 #   uptime-kuma -> homelab_alerts() (uses /metrics endpoint)
 #   ollama      -> ollama_models() — use naming convention: ollama-{hostname}
 #   glances     -> system_stats() — use naming convention: glances-{hostname}
+#   synology    -> nas_info(), nas_storage(), nas_disks(), nas_utilisation() — use naming: synology-{hostname}
 
 hosts:
   # Add your Linux hosts here
@@ -146,6 +148,20 @@ apis:
   #   url: http://192.168.1.100:11434
   #   auth: false
   #   type: ollama
+
+  # =============================================================================
+  # SYNOLOGY NAS (optional)
+  # Naming convention: synology-{hostname}
+  # Enables: nas_info(), nas_storage(), nas_disks(), nas_utilisation() tools
+  # =============================================================================
+
+  # synology-nas:
+  #   url: "https://192.168.1.123:5001"
+  #   auth: true
+  #   auth_type: synology
+  #   token_env: SYNOLOGY_CREDS
+  #   verify_ssl: false
+  #   type: synology
 
   # =============================================================================
   # GLANCES INSTANCES (optional)
