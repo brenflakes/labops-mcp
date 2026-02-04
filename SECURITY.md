@@ -72,6 +72,17 @@ If in docker group, full root access is possible via:
 docker run -v /:/host alpine chroot /host
 ```
 
+### File Permissions
+
+`.env` files containing API tokens and credentials must be `600` (owner read/write only):
+
+```bash
+chmod 600 /home/docker/labops-mcp/.env
+chmod 600 /home/docker/*/.env   # All compose stacks
+```
+
+Without this, `claude-ro` can read `.env` files via SSH and expose every credential on the host.
+
 ### Input Validation
 
 Commands are blocked if they contain:
@@ -109,6 +120,9 @@ ssh claude-ro@host 'sudo docker ps -a'
 
 # Should fail
 ssh claude-ro@host 'sudo docker run hello-world'
+
+# .env files must not be readable by claude-ro
+ssh claude-ro@host 'cat /home/docker/labops-mcp/.env'  # Should fail: Permission denied
 ```
 
 ## Post-Setup Audit
