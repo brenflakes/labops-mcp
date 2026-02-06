@@ -387,6 +387,16 @@ def ssh_exec(host: str, command: str) -> str:
     Execute read-only command on a host via restricted SSH user.
     Security enforced at OS level via rbash + limited PATH + sudoers.
 
+    This is the low-level escape hatch - use dedicated tools first:
+    - Disk info -> disk_usage(host)
+    - Process info -> top_processes(host)
+    - Service status -> service_status(host, service)
+    - Container info -> container_status, container_logs, container_mounts
+    - System stats -> system_stats(host)
+
+    Use ssh_exec when no dedicated tool exists for the command needed,
+    or when you need raw output for a one-off investigation.
+
     Args:
         host: Target host (check health() for available hosts)
         command: Command to run (must be in allowed list on target)
@@ -420,6 +430,17 @@ def ssh_exec(host: str, command: str) -> str:
 def api_get(service: str, endpoint: str, filter: str = None) -> str:
     """
     Call a homelab service API. Returns JSON.
+
+    This is the generic API tool - use dedicated wrappers first:
+    - Prometheus queries -> prom_query(query)
+    - Firing alerts -> homelab_alerts()
+    - Ollama models -> ollama_models(host)
+    - System stats (Glances) -> system_stats(host)
+    - NAS info -> nas_info, nas_storage, nas_disks, nas_utilisation
+
+    Use api_get when no dedicated tool exists, when you need a specific
+    endpoint not covered by wrapper tools, or when using jq filters
+    to extract precise data from large API responses.
 
     Args:
         service: API to call (check health() for available services)
@@ -478,6 +499,10 @@ def health() -> str:
     """
     Check MCP server health and connectivity to all configured hosts and services.
     Returns JSON with status and available hosts/apis.
+
+    Use this first when starting a session to see what's reachable.
+    For a human-readable overview with UPS and container counts, use homelab_status() instead.
+    For detailed system metrics, use system_stats(host).
     """
     status = {
         "healthy": True,
@@ -509,6 +534,17 @@ def homelab_status() -> str:
     """
     Quick status overview of all hosts, UPS units, and APIs.
     Discovers UPS automatically via NUT on each host.
+
+    Best starting point for "how's the lab?" questions. Shows host status,
+    container counts, load averages, UPS charge/runtime, and API health
+    in a single call.
+
+    For structured JSON (e.g., programmatic checks), use health() instead.
+    For deep-dive into a specific host, follow up with:
+    - system_stats(host) for CPU/memory/disk
+    - disk_usage(host) for filesystem usage
+    - top_processes(host) for resource hogs
+    - containers_recent_restarts(host) for instability
     """
     out = []
 
@@ -621,6 +657,13 @@ def container_logs(host: str, container: str, lines: int = 50) -> str:
     """
     Get recent logs from a container.
 
+    Use when investigating a specific container's behaviour - errors, startup
+    issues, or recent activity. For searching a pattern across ALL containers
+    on a host, use search_logs() instead.
+
+    Chains with: container_status() to check state first,
+    containers_recent_restarts() to find which containers to investigate.
+
     Args:
         host: Target host (check health() for available hosts)
         container: Container name or ID
@@ -657,6 +700,13 @@ def container_logs(host: str, container: str, lines: int = 50) -> str:
 def search_logs(host: str, pattern: str, lines: int = 100) -> str:
     """
     Search recent logs across all containers on a host.
+
+    Use when you know WHAT to look for but not WHERE - searches every
+    running container's recent logs for the pattern. For logs from a
+    specific known container, use container_logs() instead (faster).
+
+    Chains with: container_logs() to get full context once you find
+    which container has the issue.
 
     Args:
         host: Target host (check health() for available hosts)
@@ -716,6 +766,11 @@ def container_mounts(host: str, container: str) -> str:
     """
     Get volume/bind mounts for a container in clean format.
 
+    Use when investigating WHERE a container stores data - shows bind mounts
+    and named volumes with source, destination, and read/write mode.
+    Not for host-level disk usage (use disk_usage() for that) or
+    NAS storage capacity (use nas_storage() for that).
+
     Args:
         host: Target host (check health() for available hosts)
         container: Container name
@@ -774,6 +829,13 @@ def container_mounts(host: str, container: str) -> str:
 def container_status(host: str, container: str) -> str:
     """
     Get single container health status: running state, uptime, restart count.
+
+    Use as the first check when investigating a specific container.
+    Shows whether it's running, how long it's been up, and restart count
+    (high restart count = crash loop).
+
+    Chains with: container_logs() for details on why it's failing,
+    container_mounts() for volume config.
 
     Args:
         host: Target host (check health() for available hosts)
@@ -855,6 +917,12 @@ def container_status(host: str, container: str) -> str:
 def containers_recent_restarts(host: str, hours: int = 24) -> str:
     """
     Show containers that restarted within the specified time window.
+
+    Use for instability checks - finds containers that crashed and restarted
+    recently. Good starting point for "anything broken?" investigations.
+
+    Chains with: container_status() then container_logs() on flagged
+    containers to diagnose the root cause.
 
     Args:
         host: Target host (check health() for available hosts)
@@ -948,6 +1016,15 @@ def prom_query(query: str) -> str:
     Execute PromQL instant query against Prometheus.
     Requires an API with type: prometheus in inventory.
 
+    Use for metric queries, threshold checks, and time-series data.
+    For a quick "what's alerting?" check, use homelab_alerts() instead.
+    For system resource overview, use system_stats(host) instead.
+
+    Common queries:
+    - up -> which scrape targets are reachable
+    - node_memory_MemAvailable_bytes -> free memory
+    - rate(node_cpu_seconds_total{mode="idle"}[5m]) -> CPU usage
+
     Args:
         query: PromQL expression (e.g., up, node_memory_MemFree_bytes)
     """
@@ -976,6 +1053,10 @@ def homelab_alerts() -> str:
     """
     Pull firing alerts from Prometheus and Uptime Kuma.
     Auto-discovers services by type in inventory.
+
+    Use this for "is anything broken right now?" - returns only active alerts.
+    For raw metric queries, use prom_query() instead.
+    For a broader status overview including hosts and UPS, use homelab_status().
     """
     out = ["🚨 ALERTS\n"]
     alert_count = 0
@@ -1070,6 +1151,10 @@ def ollama_models(host: str = None) -> str:
     List Ollama models: installed models + what's currently loaded in VRAM.
     Auto-discovers Ollama instances by type in inventory.
 
+    Use when checking what models are available or what's consuming VRAM.
+    Do not use api_get() against Ollama endpoints - this tool handles
+    discovery, formatting, and VRAM status in one call.
+
     Args:
         host: Target host (e.g., 'beast', 'ai-lab'). Omit to list available hosts.
     """
@@ -1141,6 +1226,16 @@ def system_stats(host: str = None) -> str:
     """
     Get system stats (CPU, memory, disk) from Glances.
     Auto-discovers Glances instances by type in inventory.
+
+    Use for a quick resource overview of a host. Shows CPU, memory, swap,
+    and disk usage from Glances API.
+
+    For deeper investigation:
+    - High CPU -> top_processes(host) to find what's consuming it
+    - Disk full -> disk_usage(host) for per-filesystem breakdown
+    - NAS storage -> nas_storage() for Synology volume capacity
+    Do not use api_get() against Glances endpoints - this tool handles
+    discovery and formatting automatically.
 
     Args:
         host: Target host (e.g., 'beast', 'docker-box'). Omit to list available hosts.
@@ -1237,6 +1332,9 @@ def trigger_diagnostic(name: str) -> str:
     Trigger a predefined diagnostic via n8n webhook.
     Each diagnostic runs a workflow that collects and returns system info.
 
+    Use for complex multi-step diagnostics that are pre-built as n8n workflows.
+    For simple single-command checks, use ssh_exec() or dedicated tools instead.
+
     Args:
         name: Diagnostic to run (e.g., 'docker-logs', 'fstab')
     """
@@ -1273,6 +1371,10 @@ def nas_info(host: str = None) -> str:
     """
     Get Synology NAS system info: model, firmware, uptime, temperature.
     Auto-discovers Synology instances by type in inventory.
+
+    Use for hardware/firmware info and basic health. For storage capacity
+    use nas_storage(). For disk health use nas_disks(). For resource
+    usage use nas_utilisation().
 
     Args:
         host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
@@ -1326,6 +1428,11 @@ def nas_storage(host: str = None) -> str:
     """
     Get Synology NAS volume status and usage.
     Auto-discovers Synology instances by type in inventory.
+
+    Use for "how full is the NAS?" - shows volume health, total/used
+    capacity, and percentage. This is Synology volume data, not host
+    filesystem data (use disk_usage() for host mounts that connect TO
+    the NAS).
 
     Args:
         host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
@@ -1381,6 +1488,9 @@ def nas_disks(host: str = None) -> str:
     """
     Get Synology NAS disk health and SMART status.
     Auto-discovers Synology instances by type in inventory.
+
+    Use when checking physical disk health - model, temperature, SMART
+    status. For volume capacity, use nas_storage() instead.
 
     Args:
         host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
@@ -1440,6 +1550,10 @@ def nas_utilisation(host: str = None) -> str:
     """
     Get Synology NAS CPU, memory, and network utilisation.
     Auto-discovers Synology instances by type in inventory.
+
+    Use for NAS performance - CPU load, memory pressure, network throughput.
+    For NAS storage capacity, use nas_storage(). For host-level stats on
+    machines that MOUNT the NAS, use system_stats(host) instead.
 
     Args:
         host: Target NAS host (e.g., 'nas'). Omit to list available hosts.
