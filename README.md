@@ -86,6 +86,15 @@ Any other REST API can be added with `auth_type: bearer`, `api_key`, or `custom`
 | `nas_disks(host?)` | Disk health and SMART status | `type: synology` |
 | `nas_utilisation(host?)` | CPU, memory, network utilisation | `type: synology` |
 
+### System
+
+| Tool | Purpose |
+|------|---------|
+| `get_paths()` | Show configured filesystem paths from inventory |
+| `disk_usage(host)` | Disk usage with high-usage warnings (>85%) |
+| `top_processes(host, n?)` | Top CPU and memory consuming processes |
+| `service_status(host, service)` | Systemd service status with recent journal entries |
+
 ### Security
 
 | Tool | Purpose |

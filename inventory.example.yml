@@ -187,3 +187,15 @@ apis:
 #   fstab:
 #     url: http://192.168.1.100:5678/webhook/fstab
 #     description: "Show /etc/fstab"
+
+# =============================================================================
+# PATHS (optional)
+# Key filesystem paths for reference - exposed via get_paths() tool.
+# Use with ssh_exec() to explore contents.
+# Enables: get_paths() tool
+# =============================================================================
+
+# paths:
+#   labops-repo: /home/docker/labops-mcp
+#   compose-dir: /home/docker/compose
+#   backups: /mnt/backups

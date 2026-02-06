@@ -33,11 +33,18 @@ Tools:
     - nas_storage(host)           Volume status and usage
     - nas_disks(host)             Disk health and SMART status
     - nas_utilisation(host)       CPU, memory, network utilisation
+
+  System:
+    - get_paths()                 Show configured filesystem paths
+    - disk_usage(host)            Disk usage with high-usage warnings
+    - top_processes(host, n)      Top CPU and memory consumers
+    - service_status(host, svc)   Systemd service status
 """
 
 import os
 import subprocess
 import json
+import re
 from pathlib import Path
 from collections import deque
 from time import time
@@ -60,6 +67,7 @@ with open(CONFIG_PATH) as f:
 HOSTS = {name: h for name, h in config.get("hosts", {}).items() if h.get("ssh", False)}
 APIS = config.get("apis", {})
 DIAGNOSTICS = config.get("diagnostics", {})
+PATHS = config.get("paths", {})
 
 # Build type indexes for service discovery
 APIS_BY_TYPE = {}
@@ -1492,6 +1500,216 @@ def nas_utilisation(host: str = None) -> str:
             out.append(f"      {device:10} ↓ {rx_mbit:>6.1f} Mbit/s  ↑ {tx_mbit:>6.1f} Mbit/s")
 
     return "\n".join(out)
+
+
+# =============================================================================
+# SYSTEM TOOLS
+# =============================================================================
+
+@mcp.tool()
+def get_paths() -> str:
+    """
+    Show configured filesystem paths from inventory.
+    Returns key directories like repos, vault, compose locations.
+
+    These are reference paths - use with ssh_exec() to explore contents.
+    Example: After seeing vault path, use ssh_exec(host, 'ls /home/docker/bren-vault/vault')
+    """
+    if not PATHS:
+        return (
+            "No paths configured.\n\n"
+            "Add a paths: section to inventory.yml:\n"
+            "  paths:\n"
+            "    labops-repo: /home/docker/labops-mcp\n"
+            "    compose-dir: /home/docker/compose\n"
+            "    backups: /mnt/backups"
+        )
+
+    out = ["CONFIGURED PATHS\n"]
+    for name, path in PATHS.items():
+        out.append(f"   {name:20} {path}")
+    return "\n".join(out)
+
+
+@mcp.tool()
+def disk_usage(host: str) -> str:
+    """
+    Get disk usage for a host. Shows all mounted filesystems with size, used, available, and usage percentage.
+    Flags any filesystem over 85% usage with a warning.
+
+    Args:
+        host: Target host (check health() for available hosts)
+    """
+    allowed, error = _check_rate_limit()
+    if not allowed:
+        return error
+
+    if host not in HOSTS:
+        available = list(HOSTS.keys()) if HOSTS else ["(no hosts configured)"]
+        return f"Unknown host: {host}. Available: {', '.join(available)}"
+
+    h = HOSTS[host]
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", f"{h['user']}@{h['ip']}",
+             "df -h --exclude-type=tmpfs --exclude-type=devtmpfs --exclude-type=squashfs"],
+            capture_output=True, text=True, timeout=15
+        )
+
+        if result.returncode != 0:
+            return format_error(host, "df failed", h['ip'], result.stderr.strip())
+
+        lines = result.stdout.strip().split('\n')
+        if not lines:
+            return format_error(host, "No output", h['ip'], "df returned empty output")
+
+        out = [f"DISK USAGE - {host}\n"]
+        out.append(f"   {'Filesystem':<30} {'Size':>6} {'Used':>6} {'Avail':>6} {'Use%':>5}  Mount")
+        out.append(f"   {'-' * 80}")
+
+        for line in lines[1:]:  # Skip header
+            parts = line.split()
+            if len(parts) < 6:
+                continue
+            filesystem = parts[0]
+            size = parts[1]
+            used = parts[2]
+            avail = parts[3]
+            use_pct = parts[4]
+            mount = ' '.join(parts[5:])
+
+            # Flag high usage
+            try:
+                pct_val = int(use_pct.rstrip('%'))
+                flag = " !! WARNING" if pct_val > 85 else ""
+            except ValueError:
+                flag = ""
+
+            out.append(f"   {filesystem:<30} {size:>6} {used:>6} {avail:>6} {use_pct:>5}  {mount}{flag}")
+
+        return "\n".join(out)
+
+    except subprocess.TimeoutExpired:
+        return format_error(host, "Timeout", h['ip'], "df command timed out")
+    except Exception as e:
+        return format_error(host, "Error", h['ip'], str(e))
+
+
+@mcp.tool()
+def top_processes(host: str, n: int = 10) -> str:
+    """
+    Show top CPU and memory consuming processes on a host.
+    Returns two sorted views: by CPU usage and by memory usage.
+
+    Args:
+        host: Target host (check health() for available hosts)
+        n: Number of processes to show per sort (default 10, max 25)
+    """
+    allowed, error = _check_rate_limit()
+    if not allowed:
+        return error
+
+    if host not in HOSTS:
+        available = list(HOSTS.keys()) if HOSTS else ["(no hosts configured)"]
+        return f"Unknown host: {host}. Available: {', '.join(available)}"
+
+    n = max(1, min(25, n))
+    h = HOSTS[host]
+
+    out = [f"TOP PROCESSES - {host}\n"]
+
+    # Top by CPU
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", f"{h['user']}@{h['ip']}",
+             "ps -eo pid,user,%cpu,%mem,comm --sort=-%cpu"],
+            capture_output=True, text=True, timeout=15
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            out.append("By CPU:")
+            out.append(f"   {'PID':>7} {'USER':<12} {'%CPU':>6} {'%MEM':>6}  COMMAND")
+            out.append(f"   {'-' * 50}")
+            for line in lines[1:n + 1]:  # Skip header, take top n
+                parts = line.split(None, 4)
+                if len(parts) >= 5:
+                    out.append(f"   {parts[0]:>7} {parts[1]:<12} {parts[2]:>6} {parts[3]:>6}  {parts[4]}")
+        else:
+            out.append("By CPU: failed to retrieve")
+
+    except subprocess.TimeoutExpired:
+        out.append("By CPU: timed out")
+    except Exception as e:
+        out.append(f"By CPU: error - {e}")
+
+    out.append("")
+
+    # Top by Memory
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", f"{h['user']}@{h['ip']}",
+             "ps -eo pid,user,%cpu,%mem,comm --sort=-%mem"],
+            capture_output=True, text=True, timeout=15
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            out.append("By Memory:")
+            out.append(f"   {'PID':>7} {'USER':<12} {'%CPU':>6} {'%MEM':>6}  COMMAND")
+            out.append(f"   {'-' * 50}")
+            for line in lines[1:n + 1]:  # Skip header, take top n
+                parts = line.split(None, 4)
+                if len(parts) >= 5:
+                    out.append(f"   {parts[0]:>7} {parts[1]:<12} {parts[2]:>6} {parts[3]:>6}  {parts[4]}")
+        else:
+            out.append("By Memory: failed to retrieve")
+
+    except subprocess.TimeoutExpired:
+        out.append("By Memory: timed out")
+    except Exception as e:
+        out.append(f"By Memory: error - {e}")
+
+    return "\n".join(out)
+
+
+@mcp.tool()
+def service_status(host: str, service: str) -> str:
+    """
+    Get systemd service status for non-containerised services.
+    Shows active state, uptime, and recent journal entries.
+
+    Args:
+        host: Target host (check health() for available hosts)
+        service: Systemd service name (e.g., 'sshd', 'tailscaled', 'nut-server')
+    """
+    allowed, error = _check_rate_limit()
+    if not allowed:
+        return error
+
+    if host not in HOSTS:
+        available = list(HOSTS.keys()) if HOSTS else ["(no hosts configured)"]
+        return f"Unknown host: {host}. Available: {', '.join(available)}"
+
+    # Input validation - must happen before any SSH call
+    if not re.match(r'^[a-zA-Z0-9._@-]+$', service):
+        return "Error: Invalid service name. Must contain only alphanumeric characters, dots, underscores, @ signs, and hyphens."
+
+    h = HOSTS[host]
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", f"{h['user']}@{h['ip']}",
+             f"sudo systemctl status {service} --no-pager --lines=10"],
+            capture_output=True, text=True, timeout=15
+        )
+
+        output = result.stdout + result.stderr
+        return output.strip() if output.strip() else "(no output)"
+
+    except subprocess.TimeoutExpired:
+        return format_error(host, "Timeout", h['ip'], "systemctl status timed out")
+    except Exception as e:
+        return format_error(host, "Error", h['ip'], str(e))
 
 
 # =============================================================================
