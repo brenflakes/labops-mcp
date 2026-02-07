@@ -173,15 +173,21 @@ docker-compose up -d --build
 }
 ```
 
+> **Windows users:** mcp-remote's `--header` flag breaks with plain `npx` due to spaces in `C:\Program Files`. Use `cmd /c` as the command wrapper:
+> ```json
+> {
+>   "command": "cmd",
+>   "args": ["/c", "npx", "mcp-remote", "http://YOUR-MCP-IP:8100/sse", "--allow-http", "--header", "Authorization:Bearer YOUR-TOKEN"]
+> }
+> ```
+
 **Claude Code:**
 
 ```bash
 claude mcp add --transport sse labops http://YOUR-MCP-IP:8100/sse --header "Authorization: Bearer your-generated-token"
 ```
 
-### 6. Add to Claude Desktop
-
-Edit your Claude Desktop config:
+**Without auth** (not recommended for production):
 
 ```json
 {
@@ -194,7 +200,9 @@ Edit your Claude Desktop config:
 }
 ```
 
-Restart Claude Desktop.
+**Important notes:**
+- Auth is enforced at the MCP protocol level, not HTTP. The `/sse` endpoint accepts connections regardless — auth is checked on tool calls and list operations.
+- Always restart the container after changing `MCP_AUTH_TOKEN`. Existing SSE sessions are not affected by `.env` changes until restart.
 
 ## Configuration
 
