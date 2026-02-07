@@ -53,6 +53,9 @@ import httpx
 import yaml
 import jq
 from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.dependencies import get_http_headers
+from fastmcp.exceptions import ToolError
 
 mcp = FastMCP("labops")
 
@@ -140,6 +143,43 @@ def _check_rate_limit() -> tuple[bool, str | None]:
 def _sanitize_container_name(name: str) -> bool:
     """Validate container name - alphanumeric, dash, underscore only."""
     return all(c.isalnum() or c in '-_' for c in name)
+
+
+# =============================================================================
+# AUTHENTICATION
+# =============================================================================
+
+_auth_token = os.environ.get("MCP_AUTH_TOKEN")
+
+
+class BearerAuthMiddleware(Middleware):
+    """Bearer token auth. Disabled if MCP_AUTH_TOKEN not set."""
+
+    def __init__(self, token: str | None):
+        self.token = token
+
+    async def on_request(self, context: MiddlewareContext, call_next):
+        if not self.token:
+            return await call_next(context)
+
+        headers = get_http_headers() or {}
+        auth = headers.get("authorization", "")
+
+        if not auth.startswith("Bearer "):
+            raise ToolError("Authentication required")
+
+        if auth.removeprefix("Bearer ").strip() != self.token:
+            raise ToolError("Invalid authentication token")
+
+        return await call_next(context)
+
+
+mcp.add_middleware(BearerAuthMiddleware(_auth_token))
+
+if _auth_token:
+    print("🔐 Bearer auth enabled")
+else:
+    print("⚠️  No MCP_AUTH_TOKEN set — auth disabled")
 
 
 # =============================================================================

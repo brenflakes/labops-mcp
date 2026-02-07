@@ -53,6 +53,15 @@ Apps that log credentials, tokens, or PII will expose them via `docker logs`, `c
 
 ## Security Controls
 
+### Authentication Layer
+
+Bearer token middleware validates `Authorization: Bearer <token>` on every MCP request (`on_request` hook — catches tool calls, list operations, everything).
+
+- **Optional by design** — disabled if `MCP_AUTH_TOKEN` env var is not set
+- **Simple string comparison** (not JWT) — appropriate for single-operator, internal network
+- **FastMCP native middleware** — runs before any tool execution
+- **Designed to be replaceable** with Authentik reverse proxy when expanding to multiple MCP servers
+
 ### Restricted User (claude-ro)
 
 Each host has a `claude-ro` user with:

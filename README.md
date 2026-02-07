@@ -131,7 +131,55 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-### 5. Add to Claude Desktop
+### 5. Authentication (optional but recommended)
+
+labops-mcp supports bearer token authentication. When enabled, all MCP requests must include a valid `Authorization: Bearer <token>` header. Auth is **disabled by default** — if `MCP_AUTH_TOKEN` is not set, all requests are allowed.
+
+Generate a token:
+
+```bash
+openssl rand -hex 32
+```
+
+Add to your `.env`:
+
+```
+MCP_AUTH_TOKEN=your-generated-token
+```
+
+Rebuild:
+
+```bash
+docker-compose up -d --build
+```
+
+**Claude Desktop** (via mcp-remote):
+
+```json
+{
+  "mcpServers": {
+    "labops": {
+      "command": "npx",
+      "args": [
+        "mcp-remote", "http://YOUR-MCP-IP:8100/sse",
+        "--allow-http",
+        "--header", "Authorization:Bearer ${MCP_AUTH_TOKEN}"
+      ],
+      "env": {
+        "MCP_AUTH_TOKEN": "your-generated-token"
+      }
+    }
+  }
+}
+```
+
+**Claude Code:**
+
+```bash
+claude mcp add --transport sse labops http://YOUR-MCP-IP:8100/sse --header "Authorization: Bearer your-generated-token"
+```
+
+### 6. Add to Claude Desktop
 
 Edit your Claude Desktop config:
 
